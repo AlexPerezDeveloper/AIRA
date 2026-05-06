@@ -6,7 +6,7 @@ Implementa:
 - Controles: Iniciar Sesión, Pausar Análisis, Exportar Markdown
 - Selectores de dispositivo de audio multiplataforma
 - Visualización en tiempo real de transcripción y análisis
-- Integración con AudioCapture y AgentPipeline
+- Integración con AudioCapture y SkillPipeline
 """
 
 import os
@@ -26,7 +26,7 @@ from streamlit_autorefresh import st_autorefresh
 
 # Importar módulos locales
 from audio_capture import AudioCapture, list_audio_devices, find_loopback_device
-from agent_pipeline import AgentPipeline, OllamaClient, ExportAgent
+from skill_pipeline import SkillPipeline, OllamaClient, ExportSkill
 
 
 @dataclass
@@ -42,7 +42,7 @@ class SessionState:
     session_start_time: Optional[datetime] = None
     selected_device: Optional[str] = None
     audio_capture: Optional[AudioCapture] = None
-    agent_pipeline: Optional[AgentPipeline] = None
+    skill_pipeline: Optional[SkillPipeline] = None
     
     def start_session(self):
         """Inicia una nueva sesión."""
@@ -102,7 +102,7 @@ def format_transcription(buffer: List[str]) -> str:
 def export_markdown(state: SessionState) -> Optional[str]:
     """
     Exporta la sesión actual a un archivo Markdown, incluyendo un análisis
-    completo y preguntas respondidas generadas por el ExportAgent.
+    completo y preguntas respondidas generadas por el ExportSkill.
     
     Args:
         state: Estado de la sesión
@@ -131,10 +131,10 @@ def export_markdown(state: SessionState) -> Optional[str]:
     export_data = {"analisis_completo": "No se pudo generar.", "preguntas_respondidas": []}
     if full_transcription.strip():
         try:
-            export_agent = ExportAgent()
-            export_data = export_agent.analyze(full_transcription)
+            export_skill = ExportSkill()
+            export_data = export_skill.analyze(full_transcription)
         except Exception as e:
-            print(f"Error al ejecutar ExportAgent: {e}")
+            print(f"Error al ejecutar ExportSkill: {e}")
     
     content = f"""# Sesión de Requisitos - {state.session_start_time.strftime("%Y-%m-%d %H:%M:%S")}
 
@@ -416,20 +416,20 @@ def create_analysis_callback(state: SessionState):
     Crea callback para recibir chunks de texto y procesarlos con la IA.
     """
     def callback(chunk: str):
-        if state.is_paused or not state.agent_pipeline:
+        if state.is_paused or not state.skill_pipeline:
             return
         
         try:
             mode = "Turbo" if state.use_turbo_mode else "Deep"
             print(f"[AI] Iniciando análisis en modo {mode}...")
             # El pipeline ahora recibe el flag de turbo y las preguntas pendientes
-            pipeline_result = state.agent_pipeline.process(
+            pipeline_result = state.skill_pipeline.process(
                 chunk, 
                 turbo=state.use_turbo_mode,
                 current_questions=state.preguntas
             )
             
-            # Extraer resultados de cada agente
+            # Extraer resultados de cada skill
             analista = pipeline_result.get('analista', {})
             arquitecto = pipeline_result.get('arquitecto', {})
             qa = pipeline_result.get('qa', {})
@@ -458,7 +458,7 @@ def create_analysis_callback(state: SessionState):
                 # Debug info en sidebar a través de una variable de estado temporal
                 state.debug_info = f"Última actualización de QA: {datetime.now().strftime('%H:%M:%S')}"
             else:
-                print(f"[AI WARNING] El agente QA no devolvió clave 'preguntas'")
+                print(f"[AI WARNING] El skill QA no devolvió clave 'preguntas'")
             
             print(f"[AI] Análisis completado con éxito")
             
@@ -487,7 +487,7 @@ def start_capture_and_analysis(state: SessionState, device_name: str):
         state.audio_capture.set_analysis_callback(analysis_cb)
         
         # Inicializar pipeline
-        state.agent_pipeline = AgentPipeline()
+        state.skill_pipeline = SkillPipeline()
         
         # Iniciar captura
         state.audio_capture.start_session()
@@ -577,7 +577,7 @@ def main():
     state.use_turbo_mode = st.sidebar.toggle(
         "Modo Turbo (Rápido)", 
         value=state.use_turbo_mode,
-        help="Mucho más rápido en Mac. Un solo agente unifica todo el análisis."
+        help="Mucho más rápido en Mac. Un solo skill unifica todo el análisis."
     )
     st.sidebar.subheader("⏯️ Controles")
     
