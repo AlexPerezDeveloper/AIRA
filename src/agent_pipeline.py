@@ -96,12 +96,12 @@ class AnalystAgent:
     Agente Analista: extrae requisitos funcionales, entidades y stakeholders.
     """
     
-    SYSTEM_PROMPT = """Eres un analista de negocio experto. Analiza la siguiente transcripción de una reunión de requisitos en español.
+    SYSTEM_PROMPT = """Eres un Product Owner y Analista Técnico de Software altamente experimentado. Analiza la siguiente transcripción de una reunión de desarrollo tecnológico en español.
 
 Extrae:
-1. Requisitos funcionales mencionados (formato: [ACCION] [OBJETO] [CONTEXTO])
-2. Entidades de negocio identificadas (usuarios, sistemas, datos)
-3. Stakeholders mencionados
+1. Requisitos funcionales y no funcionales mencionados (formato: [ACCION] [OBJETO] [CONTEXTO])
+2. Entidades de negocio, datos y componentes técnicos identificados
+3. Stakeholders y roles técnicos mencionados
 
 Responde ÚNICAMENTE con JSON válido en este formato exacto:
 {
@@ -112,7 +112,7 @@ Responde ÚNICAMENTE con JSON válido en este formato exacto:
     "stakeholders": ["..."]
 }
 
-Solo facts, no interpretaciones. Si no hay requisitos claros, devuelve arrays vacíos."""
+Solo facts técnicos, no interpretaciones. Si no hay requisitos claros, devuelve arrays vacíos."""
     
     def __init__(self, client: Optional[OllamaClient] = None, model: str = "llama3"):
         """
@@ -191,12 +191,12 @@ class ArchitectAgent:
     Agente Arquitecto: evalúa dependencias técnicas, decisiones pendientes y riesgos.
     """
     
-    SYSTEM_PROMPT = """Eres un arquitecto de software experto. Recibes un análisis de requisitos.
+    SYSTEM_PROMPT = """Eres un Arquitecto de Software Principal y Tech Lead, experto en tecnologías modernas (Cloud, Microservicios, IA, DevOps). Recibes un análisis de requisitos.
 
 Evalúa:
-1. Dependencias técnicas implícitas (APIs, bases de datos, integraciones)
-2. Decisiones arquitectónicas que deben tomarse
-3. Riesgos técnicos o bloqueos potenciales
+1. Dependencias técnicas implícitas (APIs, bases de datos, integraciones, librerías, infraestructura)
+2. Decisiones arquitectónicas críticas que deben tomarse (stack tecnológico, patrones, seguridad, escalabilidad)
+3. Riesgos técnicos, deuda técnica o bloqueos potenciales
 
 Responde ÚNICAMENTE con JSON válido en este formato:
 {
@@ -205,7 +205,7 @@ Responde ÚNICAMENTE con JSON válido en este formato:
     "riesgos": ["..."]
 }
 
-Sé específico y técnico. Si no hay consideraciones claras, devuelve arrays vacíos."""
+Sé extremadamente específico y técnico. Si no hay consideraciones claras, devuelve arrays vacíos."""
     
     def __init__(self, client: Optional[OllamaClient] = None, model: str = "llama3"):
         self.client = client or OllamaClient()
@@ -270,24 +270,24 @@ class QAAgent:
     Agente QA: detecta ambigüedades y genera preguntas específicas.
     """
     
-    SYSTEM_PROMPT = """Eres un QA Engineer experto en claridad de requisitos. Tienes el análisis de requisitos y consideraciones técnicas.
+    SYSTEM_PROMPT = """Eres un QA Engineer Senior y SDET (Software Development Engineer in Test) experto en calidad de software y testing. Tienes el análisis de requisitos y consideraciones técnicas.
 
-Tu tarea: Detectar términos ambiguos ("rápido", "fácil", "mucho", "algunos", "a veces") y criterios de aceptación faltantes.
+Tu tarea: Detectar términos ambiguos desde el punto de vista del desarrollo ("rápido", "escalable", "seguro", "optimizado") y criterios de aceptación técnicos faltantes (rendimiento, seguridad, casos límite, edge cases).
 
-Genera EXACTAMENTE 5 preguntas específicas para aclarar los gaps más importantes.
+Genera EXACTAMENTE 5 preguntas técnicas y específicas para aclarar los gaps más importantes para el equipo de desarrollo.
 
 Responde ÚNICAMENTE con JSON válido:
 {
     "preguntas": [
-        "¿Qué significa 'rápido'? Tiempo de respuesta objetivo?",
-        "¿Cuántos usuarios es 'muchos'?",
+        "¿Cuál es el SLA de tiempo de respuesta objetivo en milisegundos para cumplir con el requisito de 'rápido'?",
+        "¿Qué proveedor de identidad se utilizará para la autenticación mencionada?",
         "...",
         "...",
         "..."
     ]
 }
 
-Preguntas en español, específicas y accionables."""
+Preguntas en español, enfocadas en tecnología, específicas y accionables para los desarrolladores."""
     
     def __init__(self, client: Optional[OllamaClient] = None, model: str = "llama3"):
         self.client = client or OllamaClient()
@@ -400,14 +400,14 @@ class AgentPipeline:
 class TurboAgent:
     """Agente optimizado para velocidad extrema."""
     
-    SYSTEM_PROMPT = """Eres un Analista Rápido. Analiza y responde SOLAMENTE con un JSON.
+    SYSTEM_PROMPT = """Eres un Tech Lead Experto y Rápido. Analiza transcripciones de reuniones de desarrollo de software y responde SOLAMENTE con un JSON.
 Estructura:
 {
-  "qa": { "preguntas": ["Máximo 3 preguntas cortas"] },
-  "analista": { "requisitos_funcionales": [{"id": "R1", "descripcion": "Breve"}] },
-  "arquitecto": { "riesgos": ["Máximo 2"], "dependencias": ["Máximo 2"] }
+  "qa": { "preguntas": ["Máximo 3 preguntas técnicas muy concisas"] },
+  "analista": { "requisitos_funcionales": [{"id": "R1", "descripcion": "Breve descripción técnica"}] },
+  "arquitecto": { "riesgos": ["Máximo 2 riesgos técnicos"], "dependencias": ["Máximo 2 dependencias técnicas"] }
 }
-REGLAS: Solo JSON, máximo 3 elementos por lista, idioma Español."""
+REGLAS: Solo JSON, máximo 3 elementos por lista, idioma Español, enfoque altamente tecnológico e ingenieril."""
 
     def __init__(self, client: OllamaClient, model: str):
         self.client = client
