@@ -210,7 +210,7 @@ class ArchitectSkill:
     Skill de Arquitecto: evalúa dependencias técnicas, decisiones pendientes y riesgos.
     """
     
-    DEFAULT_SYSTEM_PROMPT = """Eres un Skill de Arquitecto de la metodología BMAD (Arquitecto de Software Principal). Recibes un análisis de requisitos y tu objetivo es definir la estructura técnica, decisiones y dependencias aplicando los principios de BMAD para asegurar un desarrollo estructurado y escalable.
+    DEFAULT_SYSTEM_PROMPT = """Eres un Skill de Arquitecto de la metodología BMAD (Arquitecto de Software Principal). Recibes la transcripción de una reunión y tu objetivo es definir la estructura técnica, decisiones y dependencias aplicando los principios de BMAD para asegurar un desarrollo estructurado y escalable.
 
 Evalúa:
 1. Dependencias técnicas implícitas (APIs, bases de datos, integraciones, librerías, infraestructura)
@@ -231,21 +231,21 @@ Sé extremadamente específico y técnico. Si no hay consideraciones claras, dev
         self.model = model
         self.system_prompt = get_skill_prompt("arquitecto", self.DEFAULT_SYSTEM_PROMPT)
     
-    def analyze(self, analyst_output: Dict[str, Any]) -> Dict[str, Any]:
+    def analyze(self, transcription: str) -> Dict[str, Any]:
         """
-        Analiza output del Analista y genera consideraciones técnicas.
+        Analiza la transcripción y genera consideraciones técnicas.
         
         Args:
-            analyst_output: Output del Skill de Analista
+            transcription: Texto de la reunión
             
         Returns:
             Dict con dependencias, decisiones_pendientes, riesgos
         """
-        if not analyst_output:
-            raise ValueError("Output del Analista no puede estar vacío")
+        if not transcription:
+            raise ValueError("Transcripción no puede estar vacía")
         
-        prompt = f"""Análisis del Analista:
-{json.dumps(analyst_output, ensure_ascii=False, indent=2)}
+        prompt = f"""Transcripción:
+{transcription}
 
 Genera dependencias técnicas, decisiones pendientes y riesgos en JSON válido."""
         
@@ -261,7 +261,7 @@ Genera dependencias técnicas, decisiones pendientes y riesgos en JSON válido."
         except RuntimeError as e:
             if "gemma4" in str(e).lower() and self.model == "gemma4":
                 self.model = "gemma3"
-                return self.analyze(analyst_output)
+                return self.analyze(transcription)
             raise
     
     def _parse_response(self, response: str) -> Dict[str, Any]:
@@ -290,7 +290,7 @@ class QASkill:
     Skill de QA: detecta ambigüedades y genera preguntas específicas.
     """
     
-    SYSTEM_PROMPT = """Eres un Business Analyst y experto en Toma de Requisitos. Tienes el análisis de requerimientos, consideraciones técnicas y una lista de preguntas pendientes.
+    SYSTEM_PROMPT = """Eres un Business Analyst y experto en Toma de Requisitos. Recibes la transcripción de una reunión y una lista de preguntas pendientes.
 
 Tu tarea: 
 1. Evaluar si la información actual responde alguna de las preguntas pendientes. Si es así, elimínala de la lista.
@@ -314,33 +314,26 @@ Preguntas en español, enfocadas en el negocio, el usuario final y el valor apor
     
     def analyze(
         self,
-        analyst_output: Dict[str, Any],
-        architect_output: Dict[str, Any],
+        transcription: str,
         current_questions: List[str] = None
     ) -> Dict[str, Any]:
         """
-        Analiza outputs previos y genera preguntas de clarificación.
+        Analiza transcripción y genera preguntas de clarificación.
         
         Args:
-            analyst_output: Output del Skill de Analista
-            architect_output: Output del Skill de Arquitecto
+            transcription: Texto de la reunión
             current_questions: Preguntas pendientes actuales
             
         Returns:
             Dict con lista de preguntas
         """
-        if not analyst_output:
-            raise ValueError("Output del Analista no puede estar vacío")
-        if architect_output is None:
-            architect_output = {}
+        if not transcription:
+            raise ValueError("Transcripción no puede estar vacía")
         if current_questions is None:
             current_questions = []
         
-        prompt = f"""Análisis de Requisitos:
-{json.dumps(analyst_output, ensure_ascii=False, indent=2)}
-
-Consideraciones Técnicas:
-{json.dumps(architect_output, ensure_ascii=False, indent=2)}"""
+        prompt = f"""Transcripción:
+{transcription}"""
 
         if current_questions:
             prompt += f"\n\nPreguntas pendientes:\n{json.dumps(current_questions, ensure_ascii=False)}"
@@ -360,7 +353,7 @@ Consideraciones Técnicas:
         except RuntimeError as e:
             if "gemma4" in str(e).lower() and self.model == "gemma4":
                 self.model = "gemma3"
-                return self.analyze(analyst_output, architect_output, current_questions)
+                return self.analyze(transcription, current_questions)
             raise
     
     def _parse_response(self, response: str) -> Dict[str, Any]:
@@ -415,10 +408,17 @@ class SkillPipeline:
         if turbo:
             return self.turbo.analyze(transcription, current_questions)
             
-        # Modo Deep (Secuencial)
-        analyst_output = self.analyst.analyze(transcription)
-        architect_output = self.architect.analyze(analyst_output)
-        qa_output = self.qa.analyze(analyst_output, architect_output, current_questions)
+        # Modo Deep (Paralelo)
+        import concurrent.futures
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            future_analyst = executor.submit(self.analyst.analyze, transcription)
+            future_architect = executor.submit(self.architect.analyze, transcription)
+            future_qa = executor.submit(self.qa.analyze, transcription, current_questions)
+            
+            analyst_output = future_analyst.result()
+            architect_output = future_architect.result()
+            qa_output = future_qa.result()
         
         return {
             "analista": analyst_output,
