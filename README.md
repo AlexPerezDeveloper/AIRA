@@ -2,14 +2,20 @@
 
 Aplicación de escritorio para capturar audio en tiempo real de reuniones (Microsoft Teams, Zoom, etc.), transcribirlo automáticamente con Azure Speech Services, y analizarlo con un sistema multi-agente basado en LLMs locales (Gemma via Ollama) para identificar requisitos, vacíos de información y sugerir preguntas estratégicas.
 
+![UI Dashboard](docs/screenshot.png)
+
 ## 🎯 Características Principales
 
-- **Captura de Audio en Tiempo Real**: Usa dispositivos de loopback (BlackHole en macOS, VB-Cable en Windows) para capturar audio del sistema
-- **Transcripción Automática**: Azure Speech Services con soporte para español
-- **Análisis Multi-Agente**: 3 agentes especializados (Analista, Arquitecto, QA) que procesan cada 30 segundos
-- **Interfaz Web**: Streamlit con layout 60/40 (transcripción / insights)
-- **Exportación Markdown**: Genera reportes estructurados con requisitos y preguntas pendientes
-- **Multiplataforma**: macOS y Windows
+- **Metodología BMAD Nativa**: Implementación basada en roles (Analista, Arquitecto, QA) con prompts cargados dinámicamente desde el directorio `/skills`.
+- **Modos de Ejecución Inteligentes**: 
+  - **Modo Deep**: Procesamiento de agentes en paralelo asíncrono para máxima velocidad sin perder profundidad.
+  - **Modo Turbo**: Para sesiones de alta velocidad, un único paso del modelo analiza toda la transcripción en tiempo récord.
+- **Gestión Dinámica de Preguntas**: Seguimiento en tiempo real de dudas. El sistema detecta automáticamente cuando se responde una pregunta durante la reunión y la descarta.
+- **Análisis Post-Sesión (Exportación Avanzada)**: Genera un resumen ejecutivo automático, mapea las preguntas que fueron contestadas en la reunión y consolida requisitos en un documento Markdown de alta calidad.
+- **Captura de Audio en Tiempo Real**: Usa dispositivos de loopback (BlackHole en macOS, VB-Cable en Windows).
+- **Transcripción Automática**: Azure Speech Services con soporte robusto para español.
+- **Interfaz Web**: Dashboard Streamlit interactivo con layout 60/40 (transcripción en vivo / insights).
+- **Multiplataforma**: Compatible de forma nativa en macOS y Windows.
 
 ## 📁 Estructura del Proyecto
 
@@ -161,18 +167,14 @@ Se abrirá automáticamente en tu navegador: `http://localhost:8501`
 ┌─────────────────┐
 │ AgentPipeline   │
 │  (src/agent_)   │
-│                 │
-│  ┌───────────┐  │
-│  │  Analyst  │  │ → Extrae requisitos y entidades
-│  └─────┬─────┘  │
-│        ↓        │
-│  ┌───────────┐  │
-│  │ Architect │  │ → Analiza dependencias y decisiones
-│  └─────┬─────┘  │
-│        ↓        │
-│  ┌───────────┐  │
-│  │    QA     │  │ → Genera preguntas estratégicas
-│  └─────┬─────┘  │
+│  Transcripción (Cada 30s) │
+│       ┌─────────┴─────────┐        │
+│       ↓         ↓         ↓        │
+│ ┌───────┐ ┌─────────┐ ┌────────┐   │
+│ │Analyst│ │Architect│ │   QA   │   │ → ¡Ejecución en Paralelo (Deep Mode)!
+│ └───────┘ └─────────┘ └────────┘   │
+│       ↓         ↓         ↓        │
+│       └─────────┬─────────┘        │
 └────────┬────────┘
          │ Insights
          ▼
