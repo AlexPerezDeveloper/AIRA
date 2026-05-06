@@ -1,0 +1,25 @@
+# AI Requirements Architect - Dependencies
+# Instalar con: pip install -r requirements.txt
+
+# Web UI
+streamlit>=1.28.0
+streamlit-autorefresh>=0.0.1
+
+# Audio (sounddevice es puro Python, más fácil de instalar que pyaudio)
+sounddevice>=0.4.6
+
+# Azure Speech
+azure-cognitiveservices-speech>=1.33.0
+
+# Ollama API
+ollama>=0.1.0
+
+# Environment
+python-dotenv>=1.0.0
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+
+# Utils
+pathlib>=1.0.1; python_version < "3.4"
