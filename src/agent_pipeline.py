@@ -452,6 +452,74 @@ REGLAS: Solo JSON, idioma Español, enfoque altamente tecnológico e ingenieril.
         return {"analista": {}, "arquitecto": {}, "qa": {}}
 
 
+class ExportAgent:
+    """
+    Agente de Exportación: Genera un análisis completo y extrae preguntas respondidas
+    al finalizar la sesión.
+    """
+    
+    SYSTEM_PROMPT = """Eres un Analista de Negocio y Arquitecto Principal. 
+Analiza la siguiente transcripción COMPLETA de una sesión de toma de requisitos.
+
+Debes generar:
+1. Un resumen o análisis completo de la conversación (ideas clave, propósito del proyecto, conclusiones).
+2. Una lista de las preguntas que fueron respondidas durante la conversación y cuáles fueron esas respuestas.
+
+Responde ÚNICAMENTE con JSON válido en este formato exacto:
+{
+    "analisis_completo": "...",
+    "preguntas_respondidas": [
+        {
+            "pregunta": "...",
+            "respuesta": "..."
+        }
+    ]
+}"""
+
+    def __init__(self, client: Optional[OllamaClient] = None, model: str = "llama3"):
+        self.client = client or OllamaClient()
+        self.model = model
+
+    def analyze(self, full_transcription: str) -> Dict[str, Any]:
+        if not full_transcription or not full_transcription.strip():
+            return {"analisis_completo": "No hay transcripción disponible.", "preguntas_respondidas": []}
+            
+        prompt = f"Transcripción completa de la sesión:\n{full_transcription}\n\nGenera el análisis completo y las preguntas respondidas en JSON válido."
+        
+        try:
+            response = self.client.generate(
+                prompt=prompt,
+                model=self.model,
+                system_prompt=self.SYSTEM_PROMPT,
+                temperature=0.2
+            )
+            print(f"[ExportAgent] Respuesta recibida ({len(response)} chars)")
+            return self._parse_response(response)
+        except Exception as e:
+            print(f"[ExportAgent] Error: {e}")
+            return {"analisis_completo": f"Error al generar análisis: {e}", "preguntas_respondidas": []}
+
+    def _parse_response(self, response: str) -> Dict[str, Any]:
+        try:
+            clean_response = response.strip()
+            return json.loads(clean_response)
+        except json.JSONDecodeError:
+            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response, re.DOTALL)
+            if json_match:
+                try: return json.loads(json_match.group(1))
+                except: pass
+            
+            try:
+                start = response.find('{')
+                end = response.rfind('}')
+                if start != -1 and end != -1:
+                    return json.loads(response[start:end+1])
+            except: pass
+            
+            return {"analisis_completo": "No se pudo parsear el análisis estructurado.", "preguntas_respondidas": []}
+
+
+
 if __name__ == "__main__":
     # Demo manual
     print("Demo del Pipeline Multi-Agente")

@@ -26,7 +26,7 @@ from streamlit_autorefresh import st_autorefresh
 
 # Importar módulos locales
 from audio_capture import AudioCapture, list_audio_devices, find_loopback_device
-from agent_pipeline import AgentPipeline, OllamaClient
+from agent_pipeline import AgentPipeline, OllamaClient, ExportAgent
 
 
 @dataclass
@@ -75,14 +75,12 @@ class SessionState:
 def get_sessions_dir() -> Path:
     """
     Obtiene directorio para guardar sesiones (cross-platform).
+    Se guarda en la carpeta 'sessions' dentro del directorio del proyecto.
     
     Returns:
         Path al directorio de sesiones
     """
-    if os.name == 'nt':  # Windows
-        base_dir = Path(os.environ.get('USERPROFILE', '~')) / 'AIAnalyst' / 'sessions'
-    else:  # macOS/Linux
-        base_dir = Path.home() / 'AIAnalyst' / 'sessions'
+    base_dir = Path(__file__).parent.parent / 'sessions'
     
     base_dir.mkdir(parents=True, exist_ok=True)
     return base_dir
@@ -103,7 +101,8 @@ def format_transcription(buffer: List[str]) -> str:
 
 def export_markdown(state: SessionState) -> Optional[str]:
     """
-    Exporta la sesión actual a un archivo Markdown.
+    Exporta la sesión actual a un archivo Markdown, incluyendo un análisis
+    completo y preguntas respondidas generadas por el ExportAgent.
     
     Args:
         state: Estado de la sesión
@@ -119,8 +118,28 @@ def export_markdown(state: SessionState) -> Optional[str]:
     filepath = get_sessions_dir() / filename
     
     duration = state.get_duration_minutes()
+
+    # 1. Obtener la transcripción completa
+    if state.audio_capture:
+        buffer = state.audio_capture.get_transcription_history()
+    else:
+        buffer = state.transcription_buffer
+        
+    full_transcription = "\n".join(buffer)
+
+    # 2. Generar análisis y extraer preguntas respondidas
+    export_data = {"analisis_completo": "No se pudo generar.", "preguntas_respondidas": []}
+    if full_transcription.strip():
+        try:
+            export_agent = ExportAgent()
+            export_data = export_agent.analyze(full_transcription)
+        except Exception as e:
+            print(f"Error al ejecutar ExportAgent: {e}")
     
     content = f"""# Sesión de Requisitos - {state.session_start_time.strftime("%Y-%m-%d %H:%M:%S")}
+
+## Análisis Completo de la Conversación
+{export_data.get('analisis_completo', 'No disponible.')}
 
 ## Resumen Ejecutivo
 - **Duración:** {duration} minutos
@@ -138,6 +157,21 @@ def export_markdown(state: SessionState) -> Optional[str]:
         desc = req.get('descripcion', '-')
         req_id = req.get('id', '-')
         content += f"| {req_id} | {desc} | {tipo} |\n"
+
+    content += f"""
+## Preguntas Respondidas
+"""
+    respondidas = export_data.get('preguntas_respondidas', [])
+    if respondidas:
+        for pr in respondidas:
+            if isinstance(pr, dict):
+                pregunta = pr.get('pregunta', '')
+                respuesta = pr.get('respuesta', '')
+                content += f"**Q: {pregunta}**\n*A: {respuesta}*\n\n"
+            else:
+                content += f"- {pr}\n\n"
+    else:
+        content += "No se detectaron preguntas respondidas explícitamente en esta sesión.\n"
     
     content += f"""
 ## Preguntas Pendientes (por prioridad)
@@ -157,7 +191,7 @@ def export_markdown(state: SessionState) -> Optional[str]:
 ## Transcripción Completa
 """
     
-    for entry in state.transcription_buffer:
+    for entry in buffer:
         content += f"{entry}\n\n"
     
     try:
@@ -492,14 +526,16 @@ def main():
         initial_sidebar_state="expanded"
     )
     
-    # Autorefresh SIEMPRE al inicio (cada 1s) para asegurar respuesta en vivo
-    st_autorefresh(interval=1000, key="global_refresh")
-    
     # Inicializar estado en session_state de Streamlit
     if 'session' not in st.session_state:
         st.session_state.session = SessionState()
     
     state = st.session_state.session
+
+    # Autorefresh SOLO si está corriendo
+    if state.is_running:
+        # Usamos limit=100000 para que no se detenga (el default es 100) y una key dinámica
+        st_autorefresh(interval=1000, limit=100000, key=f"refresh_{state.session_start_time}")
     
     # Forzar refresco visual con timestamp
     st.sidebar.caption(f"Última actualización: {datetime.now().strftime('%H:%M:%S')}")
@@ -553,7 +589,7 @@ def main():
             try:
                 start_capture_and_analysis(state, device_name)
                 st.session_state.status_message = f"✅ Captura iniciada con {device_name}"
-                # No llamar st.rerun() aquí, dejar que autorefresh lo maneje
+                st.rerun()
             except Exception as e:
                 st.session_state.error_message = f"Error: {str(e)}"
         else:
@@ -564,6 +600,23 @@ def main():
         if st.sidebar.button("⏹️ DETENER", type="secondary", use_container_width=True):
             stop_capture(state)
             st.session_state.status_message = "⏹️ Sesión detenida"
+            st.rerun()
+    
+    # Botón exportar (solo si está detenido y hay datos)
+    if not state.is_running and state.session_start_time:
+        if state.audio_capture:
+            has_data = len(state.audio_capture.get_transcription_history()) > 0
+        else:
+            has_data = len(state.transcription_buffer) > 0
+            
+        if has_data:
+            if st.sidebar.button("📄 EXPORTAR MARKDOWN", type="primary", use_container_width=True):
+                with st.spinner("⏳ Generando análisis completo y exportando..."):
+                    path = export_markdown(state)
+                    if path:
+                        st.session_state.status_message = f"✅ Exportado a: {path}"
+                    else:
+                        st.session_state.error_message = "❌ Error al exportar."
     
     # Limpiar mensajes después de mostrarlos
     if st.session_state.status_message or st.session_state.error_message:
