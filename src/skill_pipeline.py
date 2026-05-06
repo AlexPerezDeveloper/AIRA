@@ -2,9 +2,9 @@
 Pipeline Multi-Agente con Ollama/Gemma - AI Requirements Architect
 
 Implementa:
-- Agente Analista: extrae requisitos y entidades (JSON)
-- Agente Arquitecto: evalúa dependencias técnicas
-- Agente QA: detecta ambigüedades, genera 5 preguntas
+- Skill de Analista: extrae requisitos y entidades (JSON)
+- Skill de Arquitecto: evalúa dependencias técnicas
+- Skill de QA: detecta ambigüedades, genera 5 preguntas
 - Pipeline orquestador: secuencial con manejo de errores
 - Fallback: Gemma 3 si Gemma 4 no disponible
 """
@@ -15,6 +15,24 @@ import re
 from typing import Dict, List, Optional, Any, Callable
 from dataclasses import dataclass
 import ollama
+import os
+from pathlib import Path
+
+def get_skill_prompt(skill_name: str, default_prompt: str) -> str:
+    """Intenta cargar el prompt del agente desde un archivo .md. Si no existe, usa el por defecto."""
+    # Buscamos en una carpeta 'agents' en la raíz del proyecto
+    base_dir = Path(__file__).parent.parent
+    md_path = base_dir / "skills" / f"{skill_name}.md"
+    
+    if md_path.exists():
+        try:
+            with open(md_path, "r", encoding="utf-8") as f:
+                return f.read()
+        except Exception as e:
+            print(f"Error leyendo el archivo {md_path}: {e}")
+            
+    return default_prompt
+
 
 
 class OllamaClient:
@@ -91,12 +109,12 @@ class OllamaClient:
                 raise RuntimeError(f"Error en Ollama: {e}")
 
 
-class AnalystAgent:
+class AnalystSkill:
     """
-    Agente Analista: extrae requisitos funcionales, entidades y stakeholders.
+    Skill de Analista: extrae requisitos funcionales, entidades y stakeholders.
     """
     
-    SYSTEM_PROMPT = """Eres un Product Owner y Analista Técnico de Software altamente experimentado. Analiza la siguiente transcripción de una reunión de desarrollo tecnológico en español.
+    DEFAULT_SYSTEM_PROMPT = """Eres un Skill de Analista de la metodología BMAD (Product Owner y Analista Técnico). Analiza la siguiente transcripción de una reunión de desarrollo tecnológico en español, aplicando los principios de BMAD para estructurar requisitos de forma clara, disciplinada y repetible.
 
 Extrae:
 1. Requisitos funcionales y no funcionales mencionados (formato: [ACCION] [OBJETO] [CONTEXTO])
@@ -124,6 +142,7 @@ Solo facts técnicos, no interpretaciones. Si no hay requisitos claros, devuelve
         """
         self.client = client or OllamaClient()
         self.model = model
+        self.system_prompt = get_skill_prompt("analista", self.DEFAULT_SYSTEM_PROMPT)
     
     def analyze(self, transcription: str) -> Dict[str, Any]:
         """
@@ -149,10 +168,10 @@ Extrae los requisitos, entidades y stakeholders en JSON válido."""
             response = self.client.generate(
                 prompt=prompt,
                 model=self.model,
-                system_prompt=self.SYSTEM_PROMPT,
+                system_prompt=self.system_prompt,
                 temperature=0.2  # Baja temperatura para consistencia
             )
-            print(f"[AnalystAgent] Respuesta recibida ({len(response)} chars)")
+            print(f"[AnalystSkill] Respuesta recibida ({len(response)} chars)")
             return self._parse_response(response)
         except RuntimeError as e:
             # Si Gemma 4 no existe, intentar con Gemma 3
@@ -182,16 +201,16 @@ Extrae los requisitos, entidades y stakeholders en JSON válido."""
                     return json.loads(response[start:end+1])
             except: pass
             
-            print(f"[AnalystAgent] Falló el parseo. Texto: {response[:100]}...")
+            print(f"[AnalystSkill] Falló el parseo. Texto: {response[:100]}...")
             return {"requisitos_funcionales": [], "entidades": [], "stakeholders": []}
 
 
-class ArchitectAgent:
+class ArchitectSkill:
     """
-    Agente Arquitecto: evalúa dependencias técnicas, decisiones pendientes y riesgos.
+    Skill de Arquitecto: evalúa dependencias técnicas, decisiones pendientes y riesgos.
     """
     
-    SYSTEM_PROMPT = """Eres un Arquitecto de Software Principal y Tech Lead, experto en tecnologías modernas (Cloud, Microservicios, IA, DevOps). Recibes un análisis de requisitos.
+    DEFAULT_SYSTEM_PROMPT = """Eres un Skill de Arquitecto de la metodología BMAD (Arquitecto de Software Principal). Recibes un análisis de requisitos y tu objetivo es definir la estructura técnica, decisiones y dependencias aplicando los principios de BMAD para asegurar un desarrollo estructurado y escalable.
 
 Evalúa:
 1. Dependencias técnicas implícitas (APIs, bases de datos, integraciones, librerías, infraestructura)
@@ -210,13 +229,14 @@ Sé extremadamente específico y técnico. Si no hay consideraciones claras, dev
     def __init__(self, client: Optional[OllamaClient] = None, model: str = "llama3"):
         self.client = client or OllamaClient()
         self.model = model
+        self.system_prompt = get_skill_prompt("arquitecto", self.DEFAULT_SYSTEM_PROMPT)
     
     def analyze(self, analyst_output: Dict[str, Any]) -> Dict[str, Any]:
         """
         Analiza output del Analista y genera consideraciones técnicas.
         
         Args:
-            analyst_output: Output del Agente Analista
+            analyst_output: Output del Skill de Analista
             
         Returns:
             Dict con dependencias, decisiones_pendientes, riesgos
@@ -233,10 +253,10 @@ Genera dependencias técnicas, decisiones pendientes y riesgos en JSON válido."
             response = self.client.generate(
                 prompt=prompt,
                 model=self.model,
-                system_prompt=self.SYSTEM_PROMPT,
+                system_prompt=self.system_prompt,
                 temperature=0.2
             )
-            print(f"[ArchitectAgent] Respuesta recibida ({len(response)} chars)")
+            print(f"[ArchitectSkill] Respuesta recibida ({len(response)} chars)")
             return self._parse_response(response)
         except RuntimeError as e:
             if "gemma4" in str(e).lower() and self.model == "gemma4":
@@ -265,28 +285,28 @@ Genera dependencias técnicas, decisiones pendientes y riesgos en JSON válido."
             return {"dependencias": [], "decisiones_pendientes": [], "riesgos": []}
 
 
-class QAAgent:
+class QASkill:
     """
-    Agente QA: detecta ambigüedades y genera preguntas específicas.
+    Skill de QA: detecta ambigüedades y genera preguntas específicas.
     """
     
-    SYSTEM_PROMPT = """Eres un QA Engineer Senior y SDET experto en calidad de software. Tienes el análisis de requisitos, consideraciones técnicas y una lista de preguntas pendientes.
+    SYSTEM_PROMPT = """Eres un Business Analyst y experto en Toma de Requisitos. Tienes el análisis de requerimientos, consideraciones técnicas y una lista de preguntas pendientes.
 
 Tu tarea: 
 1. Evaluar si la información actual responde alguna de las preguntas pendientes. Si es así, elimínala de la lista.
 2. Mantener las preguntas pendientes que NO han sido respondidas.
-3. Detectar términos ambiguos y generar nuevas preguntas técnicas para aclarar los gaps importantes.
+3. Detectar ambigüedades en el negocio y generar nuevas preguntas orientadas EXCLUSIVAMENTE al Stakeholder o Product Owner para entender mejor la necesidad, el valor esperado y las reglas de negocio. NO preguntes sobre detalles de implementación técnica.
 4. Devolver la lista combinada (pendientes no respondidas + nuevas) hasta un máximo de 10 preguntas.
 
 Responde ÚNICAMENTE con JSON válido:
 {
     "preguntas": [
-        "¿Cuál es el SLA de tiempo de respuesta objetivo en milisegundos para cumplir con el requisito de 'rápido'?",
+        "¿Qué impacto en el negocio tendría si este proceso falla o no está disponible?",
         "..."
     ]
 }
 
-Preguntas en español, enfocadas en tecnología, específicas y accionables para los desarrolladores."""
+Preguntas en español, enfocadas en el negocio, el usuario final y el valor aportado. NUNCA hagas preguntas técnicas o de cómo desarrollarlo."""
     
     def __init__(self, client: Optional[OllamaClient] = None, model: str = "llama3"):
         self.client = client or OllamaClient()
@@ -302,8 +322,8 @@ Preguntas en español, enfocadas en tecnología, específicas y accionables para
         Analiza outputs previos y genera preguntas de clarificación.
         
         Args:
-            analyst_output: Output del Agente Analista
-            architect_output: Output del Agente Arquitecto
+            analyst_output: Output del Skill de Analista
+            architect_output: Output del Skill de Arquitecto
             current_questions: Preguntas pendientes actuales
             
         Returns:
@@ -335,7 +355,7 @@ Consideraciones Técnicas:
                 system_prompt=self.SYSTEM_PROMPT,
                 temperature=0.3  # Ligeramente más creativo para variedad de preguntas
             )
-            print(f"[QAAgent] Respuesta recibida ({len(response)} chars)")
+            print(f"[QASkill] Respuesta recibida ({len(response)} chars)")
             return self._parse_response(response)
         except RuntimeError as e:
             if "gemma4" in str(e).lower() and self.model == "gemma4":
@@ -367,7 +387,7 @@ Consideraciones Técnicas:
             return {"preguntas": ["¿Puedes darme más detalles sobre lo conversado?"]}
 
 
-class AgentPipeline:
+class SkillPipeline:
     """Orquestador del pipeline: Modo Deep (Lento/Detallado) vs Modo Turbo (Rápido/Directo)."""
     
     def __init__(
@@ -380,12 +400,12 @@ class AgentPipeline:
         self.model = model
         
         # Agentes para modo Deep
-        self.analyst = AnalystAgent(client=self.client, model=model)
-        self.architect = ArchitectAgent(client=self.client, model=model)
-        self.qa = QAAgent(client=self.client, model=model)
+        self.analyst = AnalystSkill(client=self.client, model=model)
+        self.architect = ArchitectSkill(client=self.client, model=model)
+        self.qa = QASkill(client=self.client, model=model)
         
         # Agente para modo Turbo
-        self.turbo = TurboAgent(client=self.client, model=model)
+        self.turbo = TurboSkill(client=self.client, model=model)
     
     def process(self, transcription: str, turbo: bool = False, current_questions: List[str] = None) -> Dict[str, Any]:
         """Ejecuta el pipeline en el modo seleccionado."""
@@ -407,17 +427,17 @@ class AgentPipeline:
         }
 
 
-class TurboAgent:
-    """Agente optimizado para velocidad extrema."""
+class TurboSkill:
+    """Skill optimizado para velocidad extrema."""
     
-    SYSTEM_PROMPT = """Eres un Tech Lead Experto y Rápido. Analiza transcripciones de reuniones de desarrollo de software y responde SOLAMENTE con un JSON.
+    SYSTEM_PROMPT = """Eres un equipo ágil (Analista de Negocio y Arquitecto). Analiza transcripciones de reuniones de desarrollo de software y responde SOLAMENTE con un JSON.
 Estructura:
 {
-  "qa": { "preguntas": ["Lista de preguntas técnicas no respondidas (máx 10)"] },
-  "analista": { "requisitos_funcionales": [{"id": "R1", "descripcion": "Breve descripción técnica"}] },
+  "qa": { "preguntas": ["Lista de preguntas dirigidas al stakeholder sobre necesidades de negocio (máx 10). NUNCA preguntas técnicas o de cómo hacerlo."] },
+  "analista": { "requisitos_funcionales": [{"id": "R1", "descripcion": "Descripción del requerimiento"}] },
   "arquitecto": { "riesgos": ["Máximo 2 riesgos técnicos"], "dependencias": ["Máximo 2 dependencias técnicas"] }
 }
-REGLAS: Solo JSON, idioma Español, enfoque altamente tecnológico e ingenieril. Si hay preguntas previas, evalúa si la transcripción las responde. Si se responden, ignóralas; si no, mantenlas y agrega nuevas hasta un máximo de 10."""
+REGLAS: Solo JSON, idioma Español. Las preguntas de 'qa' deben estar enfocadas SIEMPRE al stakeholder (el negocio, reglas, usuarios o valor), NUNCA enfocadas al equipo técnico sobre la implementación. Si hay preguntas previas, evalúa si la transcripción las responde. Si se responden, ignóralas; si no, mantenlas y agrega nuevas hasta un máximo de 10."""
 
     def __init__(self, client: OllamaClient, model: str):
         self.client = client
@@ -452,9 +472,9 @@ REGLAS: Solo JSON, idioma Español, enfoque altamente tecnológico e ingenieril.
         return {"analista": {}, "arquitecto": {}, "qa": {}}
 
 
-class ExportAgent:
+class ExportSkill:
     """
-    Agente de Exportación: Genera un análisis completo y extrae preguntas respondidas
+    Skill de Exportación: Genera un análisis completo y extrae preguntas respondidas
     al finalizar la sesión.
     """
     
@@ -493,10 +513,10 @@ Responde ÚNICAMENTE con JSON válido en este formato exacto:
                 system_prompt=self.SYSTEM_PROMPT,
                 temperature=0.2
             )
-            print(f"[ExportAgent] Respuesta recibida ({len(response)} chars)")
+            print(f"[ExportSkill] Respuesta recibida ({len(response)} chars)")
             return self._parse_response(response)
         except Exception as e:
-            print(f"[ExportAgent] Error: {e}")
+            print(f"[ExportSkill] Error: {e}")
             return {"analisis_completo": f"Error al generar análisis: {e}", "preguntas_respondidas": []}
 
     def _parse_response(self, response: str) -> Dict[str, Any]:
@@ -534,7 +554,7 @@ if __name__ == "__main__":
         exit(1)
     
     # Test pipeline
-    pipeline = AgentPipeline(client=client)
+    pipeline = SkillPipeline(client=client)
     
     test_transcription = "El usuario quiere login con Google y notificaciones por email. El sistema debe ser rápido."
     
