@@ -338,7 +338,7 @@ def render_insights(state: SessionState):
     # Preguntas Sugeridas (prioridad alta)
     with st.expander(f"❓ Preguntas Sugeridas ({len(state.preguntas)})", expanded=True):
         if state.preguntas:
-            for i, pregunta in enumerate(state.preguntas[:5], 1):
+            for i, pregunta in enumerate(state.preguntas[:10], 1):
                 st.markdown(f"**{i}.** {pregunta}")
         else:
             st.info("Aún no hay preguntas. El análisis comenzará pronto...")
@@ -388,8 +388,12 @@ def create_analysis_callback(state: SessionState):
         try:
             mode = "Turbo" if state.use_turbo_mode else "Deep"
             print(f"[AI] Iniciando análisis en modo {mode}...")
-            # El pipeline ahora recibe el flag de turbo
-            pipeline_result = state.agent_pipeline.process(chunk, turbo=state.use_turbo_mode)
+            # El pipeline ahora recibe el flag de turbo y las preguntas pendientes
+            pipeline_result = state.agent_pipeline.process(
+                chunk, 
+                turbo=state.use_turbo_mode,
+                current_questions=state.preguntas
+            )
             
             # Extraer resultados de cada agente
             analista = pipeline_result.get('analista', {})
@@ -413,16 +417,14 @@ def create_analysis_callback(state: SessionState):
                 if dep not in state.alertas:
                     state.alertas.append(f"🔗 Dependencia: {dep}")
             
-            # Reemplazar preguntas (siempre mostrar las más recientes)
-            nuevas_preguntas = qa.get('preguntas', [])
-            if nuevas_preguntas:
-                # Extender la lista en lugar de sobreescribir
-                state.preguntas.extend([q for q in nuevas_preguntas if q not in state.preguntas])
-                print(f"[AI] Recibidas {len(nuevas_preguntas)} preguntas del agente QA")
+            # Actualizar preguntas pendientes gestionadas por el LLM (máximo 10)
+            if 'preguntas' in qa:
+                state.preguntas = qa.get('preguntas', [])[:10]
+                print(f"[AI] Estado de QA actualizado: {len(state.preguntas)} preguntas pendientes")
                 # Debug info en sidebar a través de una variable de estado temporal
                 state.debug_info = f"Última actualización de QA: {datetime.now().strftime('%H:%M:%S')}"
             else:
-                print(f"[AI WARNING] El agente QA no devolvió preguntas")
+                print(f"[AI WARNING] El agente QA no devolvió clave 'preguntas'")
             
             print(f"[AI] Análisis completado con éxito")
             

@@ -270,19 +270,18 @@ class QAAgent:
     Agente QA: detecta ambigüedades y genera preguntas específicas.
     """
     
-    SYSTEM_PROMPT = """Eres un QA Engineer Senior y SDET (Software Development Engineer in Test) experto en calidad de software y testing. Tienes el análisis de requisitos y consideraciones técnicas.
+    SYSTEM_PROMPT = """Eres un QA Engineer Senior y SDET experto en calidad de software. Tienes el análisis de requisitos, consideraciones técnicas y una lista de preguntas pendientes.
 
-Tu tarea: Detectar términos ambiguos desde el punto de vista del desarrollo ("rápido", "escalable", "seguro", "optimizado") y criterios de aceptación técnicos faltantes (rendimiento, seguridad, casos límite, edge cases).
-
-Genera EXACTAMENTE 5 preguntas técnicas y específicas para aclarar los gaps más importantes para el equipo de desarrollo.
+Tu tarea: 
+1. Evaluar si la información actual responde alguna de las preguntas pendientes. Si es así, elimínala de la lista.
+2. Mantener las preguntas pendientes que NO han sido respondidas.
+3. Detectar términos ambiguos y generar nuevas preguntas técnicas para aclarar los gaps importantes.
+4. Devolver la lista combinada (pendientes no respondidas + nuevas) hasta un máximo de 10 preguntas.
 
 Responde ÚNICAMENTE con JSON válido:
 {
     "preguntas": [
         "¿Cuál es el SLA de tiempo de respuesta objetivo en milisegundos para cumplir con el requisito de 'rápido'?",
-        "¿Qué proveedor de identidad se utilizará para la autenticación mencionada?",
-        "...",
-        "...",
         "..."
     ]
 }
@@ -296,7 +295,8 @@ Preguntas en español, enfocadas en tecnología, específicas y accionables para
     def analyze(
         self,
         analyst_output: Dict[str, Any],
-        architect_output: Dict[str, Any]
+        architect_output: Dict[str, Any],
+        current_questions: List[str] = None
     ) -> Dict[str, Any]:
         """
         Analiza outputs previos y genera preguntas de clarificación.
@@ -304,6 +304,7 @@ Preguntas en español, enfocadas en tecnología, específicas y accionables para
         Args:
             analyst_output: Output del Agente Analista
             architect_output: Output del Agente Arquitecto
+            current_questions: Preguntas pendientes actuales
             
         Returns:
             Dict con lista de preguntas
@@ -312,14 +313,20 @@ Preguntas en español, enfocadas en tecnología, específicas y accionables para
             raise ValueError("Output del Analista no puede estar vacío")
         if architect_output is None:
             architect_output = {}
+        if current_questions is None:
+            current_questions = []
         
         prompt = f"""Análisis de Requisitos:
 {json.dumps(analyst_output, ensure_ascii=False, indent=2)}
 
 Consideraciones Técnicas:
-{json.dumps(architect_output, ensure_ascii=False, indent=2)}
+{json.dumps(architect_output, ensure_ascii=False, indent=2)}"""
 
-Genera exactamente 5 preguntas específicas en JSON válido para aclarar ambigüedades."""
+        if current_questions:
+            prompt += f"\n\nPreguntas pendientes:\n{json.dumps(current_questions, ensure_ascii=False)}"
+            prompt += "\n\nEvalúa si las preguntas pendientes se han respondido. Conserva las que no, genera nuevas y devuelve una lista combinada de hasta 10 preguntas en formato JSON válido."
+        else:
+            prompt += "\n\nGenera hasta 10 preguntas específicas en JSON válido para aclarar ambigüedades."
         
         try:
             response = self.client.generate(
@@ -333,7 +340,7 @@ Genera exactamente 5 preguntas específicas en JSON válido para aclarar ambigü
         except RuntimeError as e:
             if "gemma4" in str(e).lower() and self.model == "gemma4":
                 self.model = "gemma3"
-                return self.analyze(analyst_output, architect_output)
+                return self.analyze(analyst_output, architect_output, current_questions)
             raise
     
     def _parse_response(self, response: str) -> Dict[str, Any]:
@@ -380,15 +387,18 @@ class AgentPipeline:
         # Agente para modo Turbo
         self.turbo = TurboAgent(client=self.client, model=model)
     
-    def process(self, transcription: str, turbo: bool = False) -> Dict[str, Any]:
+    def process(self, transcription: str, turbo: bool = False, current_questions: List[str] = None) -> Dict[str, Any]:
         """Ejecuta el pipeline en el modo seleccionado."""
+        if current_questions is None:
+            current_questions = []
+            
         if turbo:
-            return self.turbo.analyze(transcription)
+            return self.turbo.analyze(transcription, current_questions)
             
         # Modo Deep (Secuencial)
         analyst_output = self.analyst.analyze(transcription)
         architect_output = self.architect.analyze(analyst_output)
-        qa_output = self.qa.analyze(analyst_output, architect_output)
+        qa_output = self.qa.analyze(analyst_output, architect_output, current_questions)
         
         return {
             "analista": analyst_output,
@@ -403,18 +413,23 @@ class TurboAgent:
     SYSTEM_PROMPT = """Eres un Tech Lead Experto y Rápido. Analiza transcripciones de reuniones de desarrollo de software y responde SOLAMENTE con un JSON.
 Estructura:
 {
-  "qa": { "preguntas": ["Máximo 3 preguntas técnicas muy concisas"] },
+  "qa": { "preguntas": ["Lista de preguntas técnicas no respondidas (máx 10)"] },
   "analista": { "requisitos_funcionales": [{"id": "R1", "descripcion": "Breve descripción técnica"}] },
   "arquitecto": { "riesgos": ["Máximo 2 riesgos técnicos"], "dependencias": ["Máximo 2 dependencias técnicas"] }
 }
-REGLAS: Solo JSON, máximo 3 elementos por lista, idioma Español, enfoque altamente tecnológico e ingenieril."""
+REGLAS: Solo JSON, idioma Español, enfoque altamente tecnológico e ingenieril. Si hay preguntas previas, evalúa si la transcripción las responde. Si se responden, ignóralas; si no, mantenlas y agrega nuevas hasta un máximo de 10."""
 
     def __init__(self, client: OllamaClient, model: str):
         self.client = client
         self.model = model
 
-    def analyze(self, transcription: str) -> Dict[str, Any]:
+    def analyze(self, transcription: str, current_questions: List[str] = None) -> Dict[str, Any]:
+        if current_questions is None:
+            current_questions = []
+            
         prompt = f"Analiza rápido:\n{transcription}"
+        if current_questions:
+            prompt += f"\n\nPreguntas pendientes (evalúa si se responden y descártalas si es así):\n{json.dumps(current_questions, ensure_ascii=False)}"
         try:
             response = self.client.generate(
                 prompt=prompt, 
